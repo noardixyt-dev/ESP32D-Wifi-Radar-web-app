@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 GitHub-Hosted Radar</title>
+  <style>
+    body { background: #0f172a; color: #38bdf8; font-family: system-ui, sans-serif; text-align: center; margin: 0; padding: 20px; }
+    canvas { background: #020617; border: 2px solid #0284c7; border-radius: 12px; box-shadow: 0 0 20px rgba(2, 132, 199, 0.3); max-width: 100%; }
+    button { background: #0284c7; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 8px; cursor: pointer; margin-bottom: 15px; }
+    button:active { background: #0369a1; }
+  </style>
+</head>
+<body>
+  <h2>ESP32 Web Radar (GitHub Hosted)</h2>
+  <button id="connectBtn">Connect to ESP32</button>
+  <br>
+  <canvas id="radarCanvas" width="350" height="350"></canvas>
+  <p>Live Status: <span id="status">Disconnected</span></p>
+
+  <script>
+    const serviceUuid = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+    const charUuid = "beb5483e-36e1-4688-b7f5-ea07361b26a9";
+
+    const canvas = document.getElementById("radarCanvas");
+    const ctx = canvas.getContext("2d");
+    const connectBtn = document.getElementById("connectBtn");
+    const statusEl = document.getElementById("status");
+
+    function drawGrid() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "#1e293b";
+      ctx.lineWidth = 1;
+      
+      // Concentric Distance Rings
+      for (let i = 1; i < 4; i++) {
+        ctx.beginPath();
+        ctx.arc(175, 175, i * 50, 0, 2 * Math.PI);
+        ctx.stroke();
+      }
+      
+      // Simulated Room / Wall Boundary Structure layout
+      ctx.strokeStyle = "#f43f5e";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(50, 50, 250, 250); 
+    }
+
+    drawGrid();
+
+    connectBtn.addEventListener("click", async () => {
+      try {
+        statusEl.innerText = "Scanning for ESP32...";
+        const device = await navigator.bluetooth.requestDevice({
+          filters: [{ name: "ESP32_Radar" }],
+          optionalServices: [serviceUuid]
+        });
+
+        statusEl.innerText = "Connecting...";
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(serviceUuid);
+        const characteristic = await service.getCharacteristic(charUuid);
+
+        statusEl.innerText = "Connected & Tracking";
+        connectBtn.style.display = "none";
+
+        characteristic.addEventListener("characteristicvaluechanged", (event) => {
+          const decoder = new TextDecoder('utf-8');
+          const valueString = decoder.decode(event.target.value);
+          const data = JSON.parse(valueString);
+
+          drawGrid();
+          
+          // Map RSSI to distance coordinates inside canvas matrix
+          let distance = Math.min(Math.max((Math.abs(data.rssi) - 40) * 3, 20), 130);
+          let x = 175 + distance * Math.cos(data.angle);
+          let y = 175 + distance * Math.sin(data.angle);
+
+          // Draw Person/Target Blip
+          ctx.fillStyle = "#22d3ee";
+          ctx.beginPath();
+          ctx.arc(x, y, 7, 0, 2 * Math.PI);
+          ctx.fill();
+        });
+
+        await characteristic.startNotifications();
+      } catch (error) {
+        console.error(error);
+        statusEl.innerText = "Connection Failed: " + error;
+      }
+    });
+  </script>
+</body>
+</html>
